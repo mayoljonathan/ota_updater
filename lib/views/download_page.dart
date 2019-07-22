@@ -1,12 +1,15 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-import '../app_manager.dart';
+import '../dio_manager.dart';
+import '../permission_manager.dart';
+
+enum ViewState {
+  DOWNLOADING,
+  PERMISSION_NOT_GRANTED
+}
 
 class DownloadPage extends StatefulWidget {
   const DownloadPage({
@@ -23,8 +26,12 @@ class DownloadPage extends StatefulWidget {
 
 class _DownloadPageState extends State<DownloadPage> {
 
-  double receivedBytes;
-  double totalBytes;
+  int _receivedBytes;
+  int _totalBytes;
+  double _downloadedValue = 0; // 0-1
+  String _downloadedFilePath;
+
+  ViewState _viewState = ViewState.DOWNLOADING;
 
   @override
   void initState() {
@@ -32,14 +39,18 @@ class _DownloadPageState extends State<DownloadPage> {
     _init();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
   void _init() async {
+    var results = await PermissionManager().requestPermissions([PermissionGroup.storage]);
+    if (results[PermissionGroup.storage] != PermissionStatus.granted) {
+      if (!mounted) return;
+      setState(() => _viewState = ViewState.PERMISSION_NOT_GRANTED);
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _viewState = ViewState.DOWNLOADING);
     String path = await _downloadFile(widget.downloadUrl, '${widget.filename}.apk');
-    _openFile(path);
+    Future.delayed(Duration(milliseconds: 200), () => _openFile(path));
   }
 
   @override
@@ -47,7 +58,8 @@ class _DownloadPageState extends State<DownloadPage> {
     return Scaffold(
       body: Center(
         child: Container(
-          width: MediaQuery.of(context).size.width * 0.75,
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          width: 480,
           child: Center(
             child: _buildContent()
           )
@@ -57,49 +69,147 @@ class _DownloadPageState extends State<DownloadPage> {
   }
 
   Widget _buildContent() {
+    Widget _widget = Container();
+    switch (_viewState) {
+      case ViewState.DOWNLOADING:
+        _widget = _buildDownloadingLayout();
+        break;
+      case ViewState.PERMISSION_NOT_GRANTED:
+        _widget = _buildPermissionNotGrantedLayout();
+        break;
+    }
+    return _widget;
+  }
+
+  Widget _buildPermissionNotGrantedLayout() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text('Downloading', style: Theme.of(context).textTheme.display1.copyWith(
+        Text('Unable to download update', style: Theme.of(context).textTheme.display1.copyWith(
           color: Colors.black87
         )),
-        SizedBox(height: 12.0),
-        _buildProgressBar(),
-        // Text(fileSize.toString()),
-        // Text(downloadProgress.toString())
+        SizedBox(height: 12),
+        Text('Please accept the storage permission to download the update.'),
+        SizedBox(height: 24.0),
+        _buildButton(
+          label: 'RETRY',
+          onPressed: _init
+        )
       ],
     );
   }
 
-  Widget _buildProgressBar() {
-    double value = 0;
+  Widget _buildDownloadingLayout() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: <Widget>[
+                Text(_downloadedValue == 1 ? 'Downloaded' : 'Downloading', style: Theme.of(context).textTheme.display1.copyWith(
+                  color: Colors.black87
+                )),
+                _buildProgressText(),
+              ],
+            ),
+            SizedBox(height: 6.0),
+            _buildProgressBar(),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 12.0, bottom: 18.0),
+          child: _buildHelperNote()
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: AnimatedOpacity(
+            duration: Duration(milliseconds: 200),
+            opacity: _downloadedValue == 1 ? 1 : 0,
+            child: _buildButton(
+              label: 'Install Update',
+              onPressed: () => _openFile(_downloadedFilePath)
+            )
+          ),
+        ),
+      ],
+    );
+  }
 
-    if (receivedBytes != null && totalBytes != null) {
-      value = receivedBytes / totalBytes;
+  Widget _buildHelperNote() {
+    return Text('Once you have installed the update, please restart the app.', style: TextStyle(
+      color: Theme.of(context).textTheme.caption.color
+    ));
+  }
+
+  Widget _buildProgressBar() {
+    if (_receivedBytes != null && _totalBytes != null) {
+      _downloadedValue = _receivedBytes / _totalBytes;
     }
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(6.0),
+      borderRadius: BorderRadius.circular(3.0),
       child: SizedBox(
-        height: 18,
-        child: LinearProgressIndicator(value: value)
+        height: 12,
+        child: LinearProgressIndicator(value: _downloadedValue)
       )
     );
   }
 
+  Widget _buildProgressText() {
+    String percentage;
+    if (_downloadedValue != null) percentage = (_downloadedValue * 100).toStringAsFixed(0);
+
+    return Opacity(
+      opacity: (_receivedBytes == null || _totalBytes == null) ? 0 : 1,
+      child: Text('$percentage%', textAlign: TextAlign.end, style: Theme.of(context).textTheme.title),
+    );
+  }
+
+  Widget _buildButton({String label, VoidCallback onPressed}) {
+    return SizedBox(
+      height: 44,
+      child: RaisedButton(
+        child: Text(label, style: TextStyle(
+          fontSize: 16.0
+        )),
+        onPressed: onPressed,
+      ),
+    );
+  }
+
+
   Future<String> _downloadFile(String url, String filename) async {
-    http.Client client = new http.Client();
-    var req = await client.get(Uri.parse(url));
-    var bytes = req.bodyBytes;
-    String dir = (await getApplicationDocumentsDirectory()).path;
-    String fullPath = '$dir/$filename';
-    File file = new File(fullPath);
-    await file.writeAsBytes(bytes);
-    return fullPath;
+    _onReceiveProgress(int receivedBytes, int totalBytes) {
+      if (!mounted) return;
+      setState(() {
+        _receivedBytes = receivedBytes; 
+        _totalBytes = totalBytes;
+      });
+    }
+
+    try {
+      String dir = (await getExternalStorageDirectory()).path;
+      String fullPath = '$dir/$filename';
+      await DioManager().downloadFile(url, fullPath, onReceiveProgress: _onReceiveProgress);
+
+      if (!mounted) return null;
+      setState(() {
+        _downloadedFilePath = fullPath;
+        _downloadedValue = 1;
+      });
+      return fullPath;
+    } catch (e) {
+      print('Catch e: $e');
+      return null;
+    }
   }
 
   void _openFile(String path) {
-    OpenFile.open(path);
+    print(path);
+    if (path != null) OpenFile.open(path);
   }
 }

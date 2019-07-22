@@ -4,105 +4,30 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 
 import 'app_manager.dart';
 import 'device_manager.dart';
+import 'models/ota_payload.dart';
 import 'models/update_response.dart';
 import 'views/download_page.dart';
 
-// enum UpdateStatus {
-//   /// The application is up to date.
-//   UP_TO_DATE,
-
-//   /// There is a new update available
-//   UPDATE_AVAILABLE,
-
-//   /// The update package is about to be downloaded.
-//   DOWNLOADING_UPDATE,
-
-//   /// The update package is about to be installed.
-//   INSTALLING_UPDATE,
-
-//   /// The update packages is already installed
-//   UPDATE_INSTALLED,
-
-//   /// An error has occured in downloading, or communicating to the server
-//   ERROR
-// }
-
-// enum AppUpdateStatus {
-//   /// The application is up to date.
-//   UP_TO_DATE,
-
-//   /// There is a new update available
-//   UPDATE_AVAILABLE,
-
-//   /// An error has occured in communicating to the server
-//   ERROR
-// }
-
-// class UpdateResponse {
-//   AppUpdateStatus status;
-//   String message;
-//   Map<String, dynamic> data;
-// }
-
-class DownloadProgress {
-  double totalBytes;
-  double receivedBytes;
-
-  DownloadProgress({
-    this.totalBytes,
-    this.receivedBytes
-  });
-}
-
-class UpdateStatusProgress {
-  // UpdateStatus status;
+class UResponse {
+  AppUpdateStatus status;
   String message;
 
-  UpdateStatusProgress({
-    // this.status,
+  UResponse({
+    this.status,
     this.message
   });
 }
 
-class OTAPayload {
-  String appKey;
-  String versionCode;
-  String versionName;
-  String deviceInfo;
-
-  OTAPayload({
-    @required this.appKey,
-    @required this.versionCode,
-    @required this.versionName,
-    @required this.deviceInfo
-  });
-
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'appKey': this.appKey,
-    'versionCode': this.versionCode,
-    'versionName': this.versionName,
-    'deviceInfo': this.deviceInfo
-  };
-}
-
 class OTAUpdater {
 
-  // StreamController<DownloadProgress> _downloadProgressStream = StreamController();
-  // StreamController<UpdateStatusProgress> _updateStatusStream = StreamController();
-
-  void checkForUpdate(BuildContext context, {
+  Future<UResponse> checkForUpdate(BuildContext context, {
     @required String url,
     @required String appKey,
-  }
-    // {
-    //   StreamController<DownloadProgress> downloadProgressStream,
-    //   StreamController<UpdateStatusProgress> updateStatusStream
-    // }
-  ) async {
+  }) async {
 
     final deviceInfo = await DeviceManager().getDeviceInfo();
     final deviceInfoAsJson = jsonEncode(deviceInfo);
@@ -115,27 +40,45 @@ class OTAUpdater {
       deviceInfo: deviceInfoAsJson
     );
 
-    http.Response response = await http.post(url, body: payload.toJson());
-    Map<String, dynamic> json = jsonDecode(response.body);
-    UpdateResponse updateResponse = UpdateResponse.fromJson(json);
+    try {
+      Response response = await Dio().post(url, data: payload.toJson());
+      UpdateResponse updateResponse = UpdateResponse.fromJson(response.data);
 
-    switch(updateResponse.status) {
-      case AppUpdateStatus.UP_TO_DATE:
-        print('uptodate');
-        break;
-      case AppUpdateStatus.UPDATE_AVAILABLE:
-        _onUpdateAvailable(context, updateResponse);
-        break;
-      case AppUpdateStatus.ERROR:
-        _onError(context, updateResponse);
-        break;
+      switch(updateResponse.status) {
+        case AppUpdateStatus.UP_TO_DATE:
+          return UResponse(
+            status: AppUpdateStatus.UP_TO_DATE,
+            message: updateResponse.message
+          );
+          break;
+        case AppUpdateStatus.UPDATE_AVAILABLE:
+          _onUpdateAvailable(context, updateResponse);
+          return UResponse(
+            status: AppUpdateStatus.UPDATE_AVAILABLE,
+            message: updateResponse.message
+          );
+          break;
+        case AppUpdateStatus.ERROR:
+          _onError(context, updateResponse);
+          return UResponse(
+            status: AppUpdateStatus.ERROR,
+            message: updateResponse.message
+          );
+          break;
+      }
+    } catch (e) {
+      return UResponse(
+        status: AppUpdateStatus.ERROR,
+        message: e.toString()
+      );
     }
-
+    return null;
   }
 
   void _onUpdateAvailable(BuildContext context, UpdateResponse response) async {
     bool result = await showDialog<bool>(
       context: context,
+      barrierDismissible: response.data.isMandatory,
       builder: (_) {
         return AlertDialog(
           title: Text(response.title),
@@ -154,8 +97,8 @@ class OTAUpdater {
       }
     );
 
-    if (result != null && result) {
-      Navigator.of(context).push(MaterialPageRoute(
+    if (response.data.isMandatory || (result != null && result)) {
+      Navigator.of(context).pushReplacement(MaterialPageRoute(
         builder: (context) => DownloadPage(
           filename: response.data.filename,
           downloadUrl: response.data.downloadUrl,

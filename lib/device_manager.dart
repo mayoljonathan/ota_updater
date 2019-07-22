@@ -2,6 +2,9 @@ import 'dart:io' show Platform;
 import 'package:device_info/device_info.dart';
 
 class DeviceManager {
+  static final DeviceManager _instance = DeviceManager._internal();
+  factory DeviceManager() => _instance;
+  DeviceManager._internal();
 
   Future<Map<String, dynamic>> getDeviceInfo() async {
     DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
