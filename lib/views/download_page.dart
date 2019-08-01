@@ -8,7 +8,8 @@ import '../permission_manager.dart';
 
 enum ViewState {
   DOWNLOADING,
-  PERMISSION_NOT_GRANTED
+  PERMISSION_NOT_GRANTED,
+  DOWNLOADING_FAILED
 }
 
 class DownloadPage extends StatefulWidget {
@@ -24,7 +25,7 @@ class DownloadPage extends StatefulWidget {
   _DownloadPageState createState() => _DownloadPageState();
 }
 
-class _DownloadPageState extends State<DownloadPage> {
+class _DownloadPageState extends State<DownloadPage> with SingleTickerProviderStateMixin {
 
   int _receivedBytes;
   int _totalBytes;
@@ -49,7 +50,14 @@ class _DownloadPageState extends State<DownloadPage> {
 
     if (!mounted) return;
     setState(() => _viewState = ViewState.DOWNLOADING);
+
     String path = await _downloadFile(widget.downloadUrl, '${widget.filename}.apk');
+    if (path == null) {
+      if (!mounted) return;
+      setState(() => _viewState = ViewState.DOWNLOADING_FAILED);
+      return;
+    }
+    
     Future.delayed(Duration(milliseconds: 200), () => _openFile(path));
   }
 
@@ -77,6 +85,9 @@ class _DownloadPageState extends State<DownloadPage> {
       case ViewState.PERMISSION_NOT_GRANTED:
         _widget = _buildPermissionNotGrantedLayout();
         break;
+      case ViewState.DOWNLOADING_FAILED:
+        _widget = _buildDownloadingFailedLayout();
+        break;
     }
     return _widget;
   }
@@ -84,6 +95,7 @@ class _DownloadPageState extends State<DownloadPage> {
   Widget _buildPermissionNotGrantedLayout() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text('Unable to download update', style: Theme.of(context).textTheme.display1.copyWith(
           color: Colors.black87
@@ -91,9 +103,32 @@ class _DownloadPageState extends State<DownloadPage> {
         SizedBox(height: 12),
         Text('Please accept the storage permission to download the update.'),
         SizedBox(height: 24.0),
-        _buildButton(
-          label: 'RETRY',
-          onPressed: _init
+        Center(
+          child: _buildButton(
+            label: 'RETRY',
+            onPressed: _init
+          ),
+        )
+      ],
+    );
+  }
+
+  Widget _buildDownloadingFailedLayout() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text('Download failed', style: Theme.of(context).textTheme.display1.copyWith(
+          color: Colors.black87
+        )),
+        SizedBox(height: 12),
+        Text('An error has occured in downloading the update.'),
+        SizedBox(height: 24.0),
+        Center(
+          child: _buildButton(
+            label: 'RETRY',
+            onPressed: _init
+          ),
         )
       ],
     );
@@ -102,6 +137,7 @@ class _DownloadPageState extends State<DownloadPage> {
   Widget _buildDownloadingLayout() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -124,8 +160,7 @@ class _DownloadPageState extends State<DownloadPage> {
           padding: const EdgeInsets.only(top: 12.0, bottom: 18.0),
           child: _buildHelperNote()
         ),
-        Align(
-          alignment: Alignment.centerRight,
+        Center(
           child: AnimatedOpacity(
             duration: Duration(milliseconds: 200),
             opacity: _downloadedValue == 1 ? 1 : 0,
@@ -209,7 +244,6 @@ class _DownloadPageState extends State<DownloadPage> {
   }
 
   void _openFile(String path) {
-    print(path);
     if (path != null) OpenFile.open(path);
   }
 }
