@@ -1,6 +1,6 @@
 name: ota_updater
 description: A new Flutter package project.
-version: 0.0.1
+version: 0.1.0
 author:
 homepage:
 
@@ -16,7 +16,8 @@ dependencies:
   path_provider: ^1.1.2
   open_file: ^2.0.3
   dio: ^2.1.13
-  permission_handler: '^3.0.0'
+  permission_handler: ^4.0.0
+  fluttertoast: ^3.1.3
 
 dev_dependencies:
   flutter_test:

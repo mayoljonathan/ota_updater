@@ -5,7 +5,7 @@ class DioManager {
   factory DioManager() => _instance;
   DioManager._internal();
 
-  Future<Response<dynamic>> downloadFile(String url, String path, {
+  static Future<Response<dynamic>> downloadFile(String url, String path, {
     Function(int, int) onReceiveProgress    
   }) async {
     return Dio().download(url, path, onReceiveProgress: onReceiveProgress);

@@ -15,17 +15,12 @@ class AppManager {
   factory AppManager() => _instance;
   AppManager._internal();
 
-  String versionCode;
-  String versionName;
-
-  Future<Version> getVersions() async {
+  static Future<Version> getVersions() async {
     PackageInfo packageInfo = await PackageInfo.fromPlatform();
-    versionCode = packageInfo.buildNumber;
-    versionName = packageInfo.version;
 
     return Version(
-      versionCode: versionCode,
-      versionName: versionName
+      versionCode: packageInfo.buildNumber,
+      versionName: packageInfo.version
     );
   }
 }

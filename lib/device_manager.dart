@@ -6,7 +6,7 @@ class DeviceManager {
   factory DeviceManager() => _instance;
   DeviceManager._internal();
 
-  Future<Map<String, dynamic>> getDeviceInfo() async {
+  static Future<Map<String, dynamic>> getDeviceInfo() async {
     DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
     if (Platform.isAndroid) {
       AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;

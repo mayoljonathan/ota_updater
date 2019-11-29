@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ota_updater/toast_manager.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -6,10 +7,10 @@ import 'package:permission_handler/permission_handler.dart';
 import '../dio_manager.dart';
 import '../permission_manager.dart';
 
-enum ViewState {
-  DOWNLOADING,
+enum _ViewState {
   PERMISSION_NOT_GRANTED,
-  DOWNLOADING_FAILED
+  DOWNLOADING_FAILED,
+  DOWNLOADING,
 }
 
 class DownloadPage extends StatefulWidget {
@@ -25,67 +26,202 @@ class DownloadPage extends StatefulWidget {
   _DownloadPageState createState() => _DownloadPageState();
 }
 
-class _DownloadPageState extends State<DownloadPage> with SingleTickerProviderStateMixin {
+class _DownloadPageState extends State<DownloadPage> with 
+  WidgetsBindingObserver, SingleTickerProviderStateMixin {
+
+  GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  bool _isFirstInitDone = false;
+  bool _isBackButtonTapped = false;
 
   int _receivedBytes;
   int _totalBytes;
   double _downloadedValue = 0; // 0-1
   String _downloadedFilePath;
 
-  ViewState _viewState = ViewState.DOWNLOADING;
+  _ViewState _viewState = _ViewState.PERMISSION_NOT_GRANTED;
 
   @override
   void initState() {
     super.initState();
     _init();
+
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (state == AppLifecycleState.resumed) {
+      if (_viewState != _ViewState.DOWNLOADING) _canDownload();
+    }
   }
 
   void _init() async {
-    var results = await PermissionManager().requestPermissions([PermissionGroup.storage]);
-    if (results[PermissionGroup.storage] != PermissionStatus.granted) {
-      if (!mounted) return;
-      setState(() => _viewState = ViewState.PERMISSION_NOT_GRANTED);
-      return;
-    }
+    try {
+      bool canDownload = await _canDownload();
 
-    if (!mounted) return;
-    setState(() => _viewState = ViewState.DOWNLOADING);
+      // Permission was not granted so show a dialog request user
+      if (!canDownload) {
+        bool isGranted = await _showRequestDialog();
+        bool canShowDialog = await PermissionManager.canRequestDialogShow(PermissionGroup.storage);
+
+
+        if (!canShowDialog && !isGranted && _isFirstInitDone) {
+          ToastManager.showToast('Accept the storage permission');
+          PermissionManager.openAppSettings();
+        } else {
+          _onPermissionNotGranted();
+        }
+
+        _isFirstInitDone = true;
+      }
+    } catch (e) {
+      print('Catch: Permission failed: $e');
+      _onPermissionNotGranted();
+      _isFirstInitDone = true;
+    }
+  }
+
+  // Returns true when permission granted after request
+  Future<bool> _showRequestDialog() async {
+    try {
+      Map<PermissionGroup, PermissionStatus> results = await PermissionManager.requestPermissions([PermissionGroup.storage]);
+      if (results[PermissionGroup.storage] != PermissionStatus.granted) {
+        _onPermissionNotGranted();
+        return false;
+      }
+      return true;
+    } catch (e) {
+      print('Catch _showRequestDialog: $e');
+      _onPermissionNotGranted();
+      return false;
+    }
+  }
+
+  // If it can download the update then it starts to download and returns true
+  Future<bool> _canDownload() async {
+    try {
+      PermissionStatus permissionStatus = await PermissionManager.checkPermission(PermissionGroup.storage);
+      if (permissionStatus == PermissionStatus.granted) {
+        _startDownload();
+        return true;
+      } else {
+        _onPermissionNotGranted();
+        return false;
+      }
+    } catch (e) {
+      print('_canDownload: $e');
+      _onPermissionNotGranted();
+      return false;
+    }
+  }
+
+  void _startDownload() async {
+    _onDownloadStarted();
 
     String path = await _downloadFile(widget.downloadUrl, '${widget.filename}.apk');
     if (path == null) {
-      if (!mounted) return;
-      setState(() => _viewState = ViewState.DOWNLOADING_FAILED);
+      _onDownloadFailed();
       return;
     }
     
     Future.delayed(Duration(milliseconds: 200), () => _openFile(path));
   }
 
+  void _onPermissionNotGranted() {
+    if (!mounted) return;
+    if (_isFirstInitDone) {
+      setState(() => _viewState = _ViewState.PERMISSION_NOT_GRANTED);
+    }
+  }
+
+  void _onDownloadStarted() {
+    if (!mounted) return;
+    setState(() => _viewState = _ViewState.DOWNLOADING);
+  }
+
+  void _onDownloadFailed() {
+    if (!mounted) return;
+    setState(() => _viewState = _ViewState.DOWNLOADING_FAILED);
+  }
+  
+  Future<String> _downloadFile(String url, String filename) async {
+    _onReceiveProgress(int receivedBytes, int totalBytes) {
+      if (!mounted) return;
+      setState(() {
+        _receivedBytes = receivedBytes; 
+        _totalBytes = totalBytes;
+      });
+    }
+
+    try {
+      String dir = (await getExternalStorageDirectory()).path;
+      String fullPath = '$dir/$filename';
+      await DioManager.downloadFile(url, fullPath, onReceiveProgress: _onReceiveProgress);
+
+      if (!mounted) return null;
+      setState(() {
+        _downloadedFilePath = fullPath;
+        _downloadedValue = 1;
+      });
+      return fullPath;
+    } catch (e) {
+      print('Catch e: $e');
+      return null;
+    }
+  }
+
+  void _openFile(String path) {
+    if (path != null) OpenFile.open(path);
+  }
+
+  Future<bool> _onNavigateAway() async {
+    if (!_isBackButtonTapped) {
+      _isBackButtonTapped = true;
+      _scaffoldKey.currentState.showSnackBar(SnackBar(
+        content: Text('Press back button again to close')
+      ));
+      return false;
+    }
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          width: 480,
-          child: Center(
-            child: _buildContent()
-          )
+    return WillPopScope(
+      onWillPop: _onNavigateAway,
+      child: Scaffold(
+        key: _scaffoldKey,
+        body: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            width: 480,
+            child: Center(
+              child: _buildContent()
+            )
+          ),
         ),
       ),
     );
   }
 
   Widget _buildContent() {
-    Widget _widget = Container();
+    Widget _widget = SizedBox();
     switch (_viewState) {
-      case ViewState.DOWNLOADING:
+      case _ViewState.DOWNLOADING:
         _widget = _buildDownloadingLayout();
         break;
-      case ViewState.PERMISSION_NOT_GRANTED:
+      case _ViewState.PERMISSION_NOT_GRANTED:
         _widget = _buildPermissionNotGrantedLayout();
         break;
-      case ViewState.DOWNLOADING_FAILED:
+      case _ViewState.DOWNLOADING_FAILED:
         _widget = _buildDownloadingFailedLayout();
         break;
     }
@@ -165,7 +301,7 @@ class _DownloadPageState extends State<DownloadPage> with SingleTickerProviderSt
             duration: Duration(milliseconds: 200),
             opacity: _downloadedValue == 1 ? 1 : 0,
             child: _buildButton(
-              label: 'Install Update',
+              label: 'INSTALL UPDATE',
               onPressed: () => _openFile(_downloadedFilePath)
             )
           ),
@@ -207,43 +343,14 @@ class _DownloadPageState extends State<DownloadPage> with SingleTickerProviderSt
   Widget _buildButton({String label, VoidCallback onPressed}) {
     return SizedBox(
       height: 44,
+      width: double.infinity,
       child: RaisedButton(
         child: Text(label, style: TextStyle(
-          fontSize: 16.0
+          color: Colors.white
         )),
         onPressed: onPressed,
       ),
     );
   }
 
-
-  Future<String> _downloadFile(String url, String filename) async {
-    _onReceiveProgress(int receivedBytes, int totalBytes) {
-      if (!mounted) return;
-      setState(() {
-        _receivedBytes = receivedBytes; 
-        _totalBytes = totalBytes;
-      });
-    }
-
-    try {
-      String dir = (await getExternalStorageDirectory()).path;
-      String fullPath = '$dir/$filename';
-      await DioManager().downloadFile(url, fullPath, onReceiveProgress: _onReceiveProgress);
-
-      if (!mounted) return null;
-      setState(() {
-        _downloadedFilePath = fullPath;
-        _downloadedValue = 1;
-      });
-      return fullPath;
-    } catch (e) {
-      print('Catch e: $e');
-      return null;
-    }
-  }
-
-  void _openFile(String path) {
-    if (path != null) OpenFile.open(path);
-  }
 }

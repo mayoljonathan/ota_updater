@@ -29,9 +29,9 @@ class OTAUpdater {
     @required String appKey,
   }) async {
 
-    final deviceInfo = await DeviceManager().getDeviceInfo();
+    final deviceInfo = await DeviceManager.getDeviceInfo();
     final deviceInfoAsJson = jsonEncode(deviceInfo);
-    Version versions = await AppManager().getVersions();
+    Version versions = await AppManager.getVersions();
 
     final payload = OTAPayload(
       appKey: appKey,
