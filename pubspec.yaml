@@ -1,8 +1,8 @@
 name: ota_updater
 description: A new Flutter package project.
 version: 0.1.0
-author:
-homepage:
+author: Jonathan Jay Mayol
+homepage: https://mayoljonathan.github.io/
 
 environment:
   sdk: ">=2.2.2 <3.0.0"
@@ -15,7 +15,7 @@ dependencies:
   device_info: ^0.4.0+2
   path_provider: ^1.1.2
   open_file: ^2.0.3
-  dio: ^2.1.13
+  dio: ^3.0.8
   permission_handler: ^4.0.0
   fluttertoast: ^3.1.3
 
