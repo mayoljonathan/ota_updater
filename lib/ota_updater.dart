@@ -27,6 +27,7 @@ class OTAUpdater {
   Future<UResponse> checkForUpdate(BuildContext context, {
     @required String url,
     @required String appKey,
+    bool shouldRemoveAllRoutes = true
   }) async {
 
     final deviceInfo = await DeviceManager.getDeviceInfo();
@@ -52,7 +53,7 @@ class OTAUpdater {
           );
           break;
         case AppUpdateStatus.UPDATE_AVAILABLE:
-          _onUpdateAvailable(context, updateResponse);
+          _onUpdateAvailable(context, updateResponse, shouldRemoveAllRoutes);
           return UResponse(
             status: AppUpdateStatus.UPDATE_AVAILABLE,
             message: updateResponse.message
@@ -75,7 +76,7 @@ class OTAUpdater {
     return null;
   }
 
-  void _onUpdateAvailable(BuildContext context, UpdateResponse response) async {
+  void _onUpdateAvailable(BuildContext context, UpdateResponse response, bool shouldRemoveAllRoutes) async {
     bool result = await showDialog<bool>(
       context: context,
       barrierDismissible: response.data.isMandatory,
@@ -98,12 +99,18 @@ class OTAUpdater {
     );
 
     if (response.data.isMandatory || (result != null && result)) {
-      Navigator.of(context).pushReplacement(MaterialPageRoute(
+      final downloadRoute = MaterialPageRoute(
         builder: (context) => DownloadPage(
           filename: response.data.filename,
           downloadUrl: response.data.downloadUrl,
         )
-      ));
+      );
+
+      if (shouldRemoveAllRoutes) {
+        Navigator.of(context).pushAndRemoveUntil(downloadRoute, (Route<dynamic> route) => false);
+      } else {
+        Navigator.of(context).pushReplacement(downloadRoute);
+      }
     }
   }
 
